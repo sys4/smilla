@@ -321,7 +321,17 @@ class Smilla(Milter.Base):
         msg_body = "\n".join(msg_body.split("\r\n"))
         msg = email.message_from_string(msg_body)
         if not msg.is_multipart():
-            prefix = "Content-Zype: text/plain\n\n"
+            if "Content-Type" in msg:
+                prefix = "Content-Type: %s\n" % msg["Content-Type"]
+            else:
+                prefix = "Content-Type: text/plain\n"
+            if "Content-Disposition" in msg:
+                prefix += "Content-Disposition: %s\n" % msg[
+                    "Content-Disposition"]
+            if "Content-Transfer-Encoding" in msg:
+                prefix += "Content-Transfer-Encoding: %s\n" % msg[
+                    "Content-Transfer-Encoding"]
+            prefix += "\n"
         else:
             prefix = ""
         msg_buf.write(prefix + msg_body)
@@ -338,7 +348,20 @@ class Smilla(Milter.Base):
                 break
             line.strip()
             name, hval = line.split(":")
-            self.addheader(name, hval.strip())
+            hval = hval.strip()
+            if name == "MIME-Version" and "MIME-Version" in msg:
+                continue
+            if name == "Content-Disposition" and "Content-Disposition" in msg:
+                self.chgheader(name, 1, hval)
+                continue
+            if name == "Content-Type" and "Content-Type" in msg:
+                self.chgheader(name, 1, hval)
+                continue
+            if name == "Content-Transfer-Encoding" and \
+                    "Content-Transfer-Encoding" in msg:
+                self.chgheader(name, 1, hval)
+                continue
+            self.addheader(name, hval)
 
         self.replacebody(out.read())
 
