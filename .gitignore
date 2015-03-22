@@ -1,0 +1,8 @@
+*.*~
+*.swp
+doc/*/*.html
+debian/outgoing
+.idea
+.project
+.pydevproject
+.DS_Store
