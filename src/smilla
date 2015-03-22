@@ -260,32 +260,35 @@ class Smilla(Milter.Base):
                     unbound.RR_CLASS_IN)
             if status != 0:
                 syslog(LOG_ERR,
-                       "unbound SMIMEA lookup for '%s' "
-                      "returned non-zero status, deferring" % recipient)
+                       "%s: unbound SMIMEA lookup for '%s' "
+                       "returned non-zero status, deferring"
+                        % (self.getsymval("i"), recipient))
                 return Milter.TEMPFAIL
             if result.rcode_str == 'serv fail':
                 syslog(LOG_ERR,
-                       "unbound SMIMEA lookup for '%s' "
-                      "returned SERVFAIL, deferring" % recipient)
+                       "%s: unbound SMIMEA lookup for '%s' "
+                       "returned SERVFAIL, deferring"
+                        % (self.getsymval("i"), recipient))
                 return Milter.TEMPFAIL
             if result.bogus:
                 syslog(LOG_ERR,
-                       "unbound SMIMEA lookup for '%s' "
-                      "returned with INVALID DNSSEC data, deferring"
-                      % recipient)
+                       "%s: unbound SMIMEA lookup for '%s' "
+                       "returned with INVALID DNSSEC data, deferring"
+                       % (self.getsymval("i"), recipient))
                 return Milter.TEMPFAIL
             if not result.secure:
                 syslog(LOG_ERR,
-                       "unbound SMIMEA lookup for '%s' "
-                      "ignored as the domain is not signed with DNSSEC "
-                      "- letting go plaintext" % recipient)
+                       "%s: unbound SMIMEA lookup for '%s' "
+                       "ignored as the domain is not signed with DNSSEC "
+                       "- letting go plaintext"
+                        % (self.getsymval("i"), recipient))
                 return Milter.CONTINUE
             if not result.havedata:
                 syslog(LOG_ERR,
-                       "unbound SMIMEA lookup for '%s' "
-                      "succeeded but no OpenPGP key publishd - letting go "
-                      "plaintext"
-                      % recipient)
+                       "%s: unbound SMIMEA lookup for '%s' "
+                       "succeeded but no SMIME cert published - letting go "
+                       "plaintext"
+                       % (self.getsymval("i"), recipient))
                 return Milter.CONTINUE
 
             f = StringIO(result.data.raw[0])
@@ -319,21 +322,41 @@ class Smilla(Milter.Base):
         msg_body = "".join(self.__msg_body)
         # We need to replace line endings
         msg_body = "\n".join(msg_body.split("\r\n"))
-        msg = email.message_from_string(msg_body)
-        if not msg.is_multipart():
-            if "Content-Type" in msg:
-                prefix = "Content-Type: %s\n" % msg["Content-Type"]
-            else:
-                prefix = "Content-Type: text/plain\n"
-            if "Content-Disposition" in msg:
-                prefix += "Content-Disposition: %s\n" % msg[
-                    "Content-Disposition"]
-            if "Content-Transfer-Encoding" in msg:
-                prefix += "Content-Transfer-Encoding: %s\n" % msg[
-                    "Content-Transfer-Encoding"]
-            prefix += "\n"
+
+        if '-----BEGIN PGP MESSAGE-----' in msg_body:
+            syslog('%s: Message already encrypted with PGP - letting it go '
+                   'unmodified' % self.getsymval("i"))
+            return Milter.CONTINUE
+
+        if "Content-Type" in msg:
+            if "pkcs7-mime" in msg["Content-Type"] and \
+                    "enveloped-data" in msg["Content-Type"]:
+                syslog('%s: Message already encrypted with S/MIME - letting it '
+                       'go unmodified' % self.getsymval("i"))
+
+                return Milter.CONTINUE
+
+            if "application/octet-stream" in msg["Content-Type"] and \
+                ".p7m" in msg["Content-Type"]:
+                syslog('%s: Message already encrypted with S/MIME - letting it '
+                       'go unmodified' % self.getsymval("i"))
+
+                return Milter.CONTINUE
+
+            prefix = "Content-Type: %s\n" % msg["Content-Type"]
+
         else:
-            prefix = ""
+            prefix = "Content-Type: text/plain\n"
+
+        if "Content-Disposition" in msg:
+            prefix += "Content-Disposition: %s\n" % msg[
+                "Content-Disposition"]
+
+        if "Content-Transfer-Encoding" in msg:
+            prefix += "Content-Transfer-Encoding: %s\n" % msg[
+                "Content-Transfer-Encoding"]
+
+        prefix += "\n"
         msg_buf.write(prefix + msg_body)
         p7 = smime.encrypt(msg_buf)
 
@@ -350,6 +373,7 @@ class Smilla(Milter.Base):
             name, hval = line.split(":")
             hval = hval.strip()
             if name == "MIME-Version" and "MIME-Version" in msg:
+                self.chgheader(name, 1, hval)
                 continue
             if name == "Content-Disposition" and "Content-Disposition" in msg:
                 self.chgheader(name, 1, hval)
@@ -365,6 +389,7 @@ class Smilla(Milter.Base):
 
         self.replacebody(out.read())
 
+        syslog("%s: Message has been encrypted" % self.getsymval("i"))
         self.addheader('X-SMIMEA', 'Message has been encrypted' , 1)
 
         return Milter.CONTINUE
