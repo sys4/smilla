@@ -60,6 +60,7 @@ CIPHER="aes_256_cbc"
 DEBUG = False
 
 
+# This decorator is used for the config parser
 @decorator
 def nonetype(f, *p, **kw):
     try:
@@ -74,6 +75,10 @@ def nonetype(f, *p, **kw):
 
 
 class Config(ConfigParser.RawConfigParser):
+    """
+    Read configuration file /etc/smilla.cfg. Set defaults for unset or empty
+    parameters
+    """
     def __init__(self):
         ConfigParser.RawConfigParser.__init__(self)
 
@@ -83,8 +88,6 @@ class Config(ConfigParser.RawConfigParser):
         self.__bind_address6 = None
         self.__port = None
         self.__pidfile = None
-        self.__randfile = None
-        self.__delimiter = None
         self.__trust_anchor = None
         self.__milter_timeout = None
 
@@ -106,6 +109,7 @@ class Config(ConfigParser.RawConfigParser):
             print >> sys.stderr, ("No configuration file available")
             cfg_file_ok = False
 
+        # 1. Read configuration parameters
         if cfg_file_ok:
             self.__user = self._get_section_str("config", "user")
             self.__group = self._get_section_str("config", "group")
@@ -115,12 +119,12 @@ class Config(ConfigParser.RawConfigParser):
                                                          "bind_address6")
             self.__port = self._get_section_int("config", "port")
             self.__pidfile = self._get_section_str("config", "pidfile")
-            self.__delimiter = self._get_section_str("config", "delimiter")
             self.__trust_anchor = self._get_section_str("config",
                                                         "trust_anchor")
             self.__milter_timeout = self._get_section_int("config",
                                                           "milter_timeout")
 
+        # 2. Set defaults for unset or empty parameters
         if self.__user in ("", None):
             self.__user = "milter"
         if self.__group in ("", None):
@@ -143,8 +147,6 @@ class Config(ConfigParser.RawConfigParser):
                                                 self.__bind_address6)
         if self.__pidfile in ("", None):
             self.__pidfile = "/run/%s/%s.pid" % (NAME, NAME)
-        if self.__delimiter in ("", None):
-            self.__delimiter = "+"
         if self.__trust_anchor in ("", None):
             self.__trust_anchor = ANCHOR
         if self.__milter_timeout in ("", None):
@@ -175,10 +177,6 @@ class Config(ConfigParser.RawConfigParser):
         return self.__pidfile
 
     @property
-    def delimiter(self):
-        return self.__delimiter
-
-    @property
     def trust_anchor(self):
         return self.__trust_anchor
 
@@ -192,6 +190,9 @@ class Config(ConfigParser.RawConfigParser):
 
 
 class Smilla(Milter.Base):
+    """
+    Main milter class. All callbacks are handled here.
+    """
     def __init__(self):
         self.__id = Milter.uniqueID()
         self.__ipname = None
@@ -213,6 +214,7 @@ class Smilla(Milter.Base):
     @Milter.noreply
     def envfrom(self, mailfrom, *mstr):
         self.__mailfrom = mailfrom
+        # Clear data structures for new mail
         self.__msg_body = list()
         self.__fp = StringIO()
 
@@ -249,10 +251,8 @@ class Smilla(Milter.Base):
             recipients.append(entry[1])
 
         for recipient in iter(recipients):
-            # Normalize the recipient. This breaks RFC822
-            recipient = recipient.lower()
-            recipient = recipient.split(cfg.delimiter)[0]
-
+            # Get DER certificate for each user. If we fail, we pass the mail
+            # unencrypted
             username, domainname = recipient.split('@')
             rfcname = sha224(username).hexdigest()
             query_name = '%s._smimecert.%s' % (rfcname, domainname)
@@ -306,8 +306,10 @@ class Smilla(Milter.Base):
                         if data == "":
                             break
                         der += data
+                    # Load each recipient certificate on the stack
                     cert_stack.push(X509.load_cert_der_string(der))
                 else:
+                    # Not a full DER certificate
                     fail = True
             else:
                 fail = True
@@ -320,15 +322,15 @@ class Smilla(Milter.Base):
         smime.set_cipher(SMIME.Cipher(CIPHER))
         msg_buf = BIO.MemoryBuffer()
         msg_body = "".join(self.__msg_body)
-        # We need to replace line endings
-        msg_body = "\n".join(msg_body.split("\r\n"))
 
+        # Protect against super-encryption
         if '-----BEGIN PGP MESSAGE-----' in msg_body:
             syslog('%s: Message already encrypted with PGP - letting it go '
                    'unmodified' % self.getsymval("i"))
             return Milter.CONTINUE
 
         if "Content-Type" in msg:
+            # Protect against super-encryption
             if "pkcs7-mime" in msg["Content-Type"] and \
                     "enveloped-data" in msg["Content-Type"]:
                 syslog('%s: Message already encrypted with S/MIME - letting it '
@@ -336,6 +338,7 @@ class Smilla(Milter.Base):
 
                 return Milter.CONTINUE
 
+            # Protect against super-encryption
             if "application/octet-stream" in msg["Content-Type"] and \
                 ".p7m" in msg["Content-Type"]:
                 syslog('%s: Message already encrypted with S/MIME - letting it '
@@ -346,6 +349,7 @@ class Smilla(Milter.Base):
             prefix = "Content-Type: %s\n" % msg["Content-Type"]
 
         else:
+            # We need to set a default Content-Type for the resulting PKCS#7
             prefix = "Content-Type: text/plain\n"
 
         if "Content-Disposition" in msg:
@@ -357,6 +361,7 @@ class Smilla(Milter.Base):
                 "Content-Transfer-Encoding"]
 
         prefix += "\n"
+        # Headers and body for PKCS#7
         msg_buf.write(prefix + msg_body)
         p7 = smime.encrypt(msg_buf)
 
@@ -364,7 +369,8 @@ class Smilla(Milter.Base):
         smime.write(out, p7)
         out.close()
 
-        # "out" contains header and body. Need to split things
+        # "out" contains header and body. Need to split things, because we
+        # are going to replace the message body
         while True:
             line = out.readline()
             if line == "\n":
