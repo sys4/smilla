@@ -54,7 +54,7 @@ except:
 NAME = "smilla"
 ANCHOR = "/etc/unbound/dnssec/root-anchors.txt"
 CFG_FILE = "/etc/%s.cfg" % NAME
-SMIMEA = 65226
+SMIMEA = 65514
 CIPHER="aes_256_cbc"
 
 DEBUG = False
