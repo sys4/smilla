@@ -255,27 +255,30 @@ class Smilla(Milter.Base):
             # unencrypted
             username, domainname = recipient.split('@')
             rfcname = sha224(username).hexdigest()
-            query_name = '%s._smimecert.%s' % (rfcname, domainname)
+            query_name = '%s._encr._smimecert.%s' % (rfcname, domainname)
             status, result = ctx.resolve(query_name, SMIMEA,
                     unbound.RR_CLASS_IN)
             if status != 0:
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
-                       "returned non-zero status, deferring"
+                       "returned non-zero status "
+                       "- letting go plaintext"
                         % (self.getsymval("i"), recipient))
-                return Milter.TEMPFAIL
+                return Milter.CONTINUE
             if result.rcode_str == 'serv fail':
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
-                       "returned SERVFAIL, deferring"
+                       "returned SERVFAIL "
+                       "- letting go plaintext"
                         % (self.getsymval("i"), recipient))
-                return Milter.TEMPFAIL
+                return Milter.CONTINUE
             if result.bogus:
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
-                       "returned with INVALID DNSSEC data, deferring"
+                       "returned with INVALID DNSSEC data "
+                       "- letting go plaintext"
                        % (self.getsymval("i"), recipient))
-                return Milter.TEMPFAIL
+                return Milter.CONTINUE
             if not result.secure:
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
@@ -286,33 +289,36 @@ class Smilla(Milter.Base):
             if not result.havedata:
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
-                       "succeeded but no SMIME cert published - letting go "
-                       "plaintext"
+                       "succeeded but no SMIME cert published "
+                       "- letting go plaintext"
                        % (self.getsymval("i"), recipient))
                 return Milter.CONTINUE
 
-            f = StringIO(result.data.raw[0])
+            for dns_result in iter(result.data.raw):
+                f = StringIO(dns_result)
 
-            cert_usage_field = ord(f.read(1))
-            selector = ord(f.read(1))
-            cert_association_data = ord(f.read(1))
+                cert_usage_field = ord(f.read(1))
+                selector = ord(f.read(1))
+                matching_type = ord(f.read(1))
+                cert_access_field = ord(f.read(1))
 
-            fail = False
-            if cert_usage_field == 0x01 or cert_usage_field == 0x03:
-                if selector == cert_association_data == 0x00:
-                    der = ""
-                    while True:
-                        data = f.read(1024)
-                        if data == "":
-                            break
-                        der += data
-                    # Load each recipient certificate on the stack
-                    cert_stack.push(X509.load_cert_der_string(der))
+                if cert_usage_field == 0x01 or cert_usage_field == 0x03:
+                    if selector == matching_type == cert_access_field == 0x00:
+                        der = ""
+                        while True:
+                            data = f.read(1024)
+                            if data == "":
+                                break
+                            der += data
+                        # Load each recipient certificate on the stack
+                        cert_stack.push(X509.load_cert_der_string(der))
+                        fail = False  # Found a valid certificate
+                        break
+                    else:
+                        # Not a full DER certificate
+                        fail = True
                 else:
-                    # Not a full DER certificate
                     fail = True
-            else:
-                fail = True
 
             if fail:
                 syslog(LOG_ERR, "Incorrect DNS data for %s" % recipient)
