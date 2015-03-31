@@ -18,7 +18,7 @@ def smimea(usage, der):
             cert.append(l)
 
     data = b64.b16encode("".join(cert))
-    print "\# %i 0%i000000%s" % (c + 4, usage, data)
+    print "\# %i 0%i0000%s" % (c + 3, usage, data)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(epilog="Generate SMIMEA RDATA for DNS")
@@ -49,7 +49,7 @@ if __name__ == "__main__":
         import hashlib
         local, domain = args.email.split("@")
         print hashlib.sha224(local).hexdigest() + \
-                            "._encr._smimecert.%s. IN TYPE65514" % domain,
+                            "._smimecert.%s. IN TYPE65514" % domain,
 
     smimea(args.usage_field, args.cert)
     sys.exit(os.EX_OK)
