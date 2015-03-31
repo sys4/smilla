@@ -34,6 +34,7 @@ import ConfigParser
 import pwd
 import grp
 import signal
+import threading
 import Milter
 
 from threading import Thread
@@ -58,6 +59,7 @@ SMIMEA = 65514
 CIPHER="aes_256_cbc"
 
 DEBUG = False
+TESTING = False
 
 
 # This decorator is used for the config parser
@@ -193,6 +195,8 @@ class Smilla(Milter.Base):
     """
     Main milter class. All callbacks are handled here.
     """
+    __lock = threading.Lock()
+
     def __init__(self):
         self.__id = Milter.uniqueID()
         self.__ipname = None
@@ -241,6 +245,8 @@ class Smilla(Milter.Base):
         cert_stack = X509.X509_Stack()
 
         msg = email.message_from_file(self.__fp)
+        self.__fp.close()
+        del self.__fp
 
         # get recipients from email message
         tos = msg.get_all('to', list())
@@ -250,14 +256,31 @@ class Smilla(Milter.Base):
         for entry in all_recipients:
             recipients.append(entry[1])
 
+        # Sanity check
+        if not len(recipients) > 0:
+            syslog("%s: No recipients mail_from=%s" % (
+                self.getsymval("i"), self.__mailfrom))
+            return Milter.CONTINUE
+
         for recipient in iter(recipients):
             # Get DER certificate for each user. If we fail, we pass the mail
             # unencrypted
-            username, domainname = recipient.split('@')
+            try:
+                username, domainname = recipient.split('@')
+            except ValueError:  # null mailer <> or bad address
+                syslog("%s: Skipping recipient address <%s>" % (
+                           self.getsymval("i"), recipient))
+                return Milter.CONTINUE
+
             rfcname = sha224(username).hexdigest()
             query_name = '%s._encr._smimecert.%s' % (rfcname, domainname)
-            status, result = ctx.resolve(query_name, SMIMEA,
-                    unbound.RR_CLASS_IN)
+            syslog("%s: DNS query for '%s', %s" % (
+                self.getsymval("i"), recipient, query_name))
+
+            with Smilla.__lock:
+                status, result = ctx.resolve(query_name, SMIMEA,
+                        unbound.RR_CLASS_IN)
+
             if status != 0:
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
@@ -294,6 +317,13 @@ class Smilla(Milter.Base):
                        % (self.getsymval("i"), recipient))
                 return Milter.CONTINUE
 
+            # Helper function for parse error in RDATA
+            def err():
+                syslog(LOG_ERR,
+                       "%s: Incorrect DNS data for %s" % (
+                           self.getsymval("i"), recipient))
+                return Milter.CONTINUE
+
             for dns_result in iter(result.data.raw):
                 f = StringIO(dns_result)
 
@@ -304,25 +334,15 @@ class Smilla(Milter.Base):
 
                 if cert_usage_field == 0x01 or cert_usage_field == 0x03:
                     if selector == matching_type == cert_access_field == 0x00:
-                        der = ""
-                        while True:
-                            data = f.read(1024)
-                            if data == "":
-                                break
-                            der += data
+                        der = f.read()
                         # Load each recipient certificate on the stack
-                        cert_stack.push(X509.load_cert_der_string(der))
-                        fail = False  # Found a valid certificate
+                        try:
+                            cert_stack.push(X509.load_cert_der_string(der))
+                        except X509.X509Error:
+                            err()
                         break
-                    else:
-                        # Not a full DER certificate
-                        fail = True
-                else:
-                    fail = True
-
-            if fail:
-                syslog(LOG_ERR, "Incorrect DNS data for %s" % recipient)
-                return Milter.CONTINUE
+            else:
+                err()
 
         smime.set_x509_stack(cert_stack)
         smime.set_cipher(SMIME.Cipher(CIPHER))
@@ -374,6 +394,10 @@ class Smilla(Milter.Base):
         out = BIO.MemoryBuffer()
         smime.write(out, p7)
         out.close()
+
+        if TESTING:
+            syslog("%s: Testing mode" % self.getsymval("i"))
+            return Milter.CONTINUE
 
         # "out" contains header and body. Need to split things, because we
         # are going to replace the message body
