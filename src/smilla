@@ -273,7 +273,7 @@ class Smilla(Milter.Base):
                 return Milter.CONTINUE
 
             rfcname = sha224(username).hexdigest()
-            query_name = '%s._encr._smimecert.%s' % (rfcname, domainname)
+            query_name = '%s._smimecert.%s' % (rfcname, domainname)
             syslog("%s: DNS query for '%s', %s" % (
                 self.getsymval("i"), recipient, query_name))
 
@@ -330,10 +330,9 @@ class Smilla(Milter.Base):
                 cert_usage_field = ord(f.read(1))
                 selector = ord(f.read(1))
                 matching_type = ord(f.read(1))
-                cert_access_field = ord(f.read(1))
 
                 if cert_usage_field == 0x01 or cert_usage_field == 0x03:
-                    if selector == matching_type == cert_access_field == 0x00:
+                    if selector == matching_type == 0x00:
                         der = f.read()
                         # Load each recipient certificate on the stack
                         try:
