@@ -42,8 +42,9 @@ from syslog import syslog, openlog, LOG_PID, LOG_NOTICE, LOG_ERR, LOG_MAIL
 from decorator import decorator
 from ConfigParser import NoOptionError, NoSectionError
 from cStringIO import StringIO
-from hashlib import sha224
+from hashlib import sha256
 from M2Crypto import BIO, SMIME, X509
+from datetime import datetime
 
 try:
     import setproctitle
@@ -59,7 +60,6 @@ SMIMEA = 65514
 CIPHER="aes_256_cbc"
 
 DEBUG = False
-TESTING = False
 
 
 # This decorator is used for the config parser
@@ -132,7 +132,7 @@ class Config(ConfigParser.RawConfigParser):
         if self.__group in ("", None):
             self.__group = "milter"
         if self.__port in ("", None):
-            self.__port = 10489
+            self.__port = 8894
         if self.__bind_address in ("", None) and \
                         self.__bind_address6 in ("", None):
             self.__bind_address = "127.0.0.1"
@@ -272,7 +272,9 @@ class Smilla(Milter.Base):
                            self.getsymval("i"), recipient))
                 return Milter.CONTINUE
 
-            rfcname = sha224(username).hexdigest()
+            username = username.lower()
+
+            rfcname = sha256(username).hexdigest()[:28*2]  # only 28 octets
             query_name = '%s._smimecert.%s' % (rfcname, domainname)
             syslog("%s: DNS query for '%s', %s" % (
                 self.getsymval("i"), recipient, query_name))
@@ -320,7 +322,7 @@ class Smilla(Milter.Base):
             # Helper function for parse error in RDATA
             def err():
                 syslog(LOG_ERR,
-                       "%s: Incorrect DNS data for %s" % (
+                       "%s: Invalid DNS data for %s" % (
                            self.getsymval("i"), recipient))
                 return Milter.CONTINUE
 
@@ -331,12 +333,43 @@ class Smilla(Milter.Base):
                 selector = ord(f.read(1))
                 matching_type = ord(f.read(1))
 
-                if cert_usage_field == 0x01 or cert_usage_field == 0x03:
-                    if selector == matching_type == 0x00:
+                if cert_usage_field == 0x01 or \
+                   cert_usage_field == 0x03:
+                    if selector == 0x00 and \
+                       matching_type == 0x00:
                         der = f.read()
                         # Load each recipient certificate on the stack
                         try:
-                            cert_stack.push(X509.load_cert_der_string(der))
+                            x509 = X509.load_cert_der_string(der)
+
+                            # Check date
+                            datefmt = "%b %d %H:%M:%S %Y %Z"
+                            before = x509.get_not_before().__str__()
+                            after = x509.get_not_after().__str__()
+                            now = datetime.utcnow()
+                            try:
+                                before = datetime.strptime(before, datefmt)
+                                after = datetime.strptime(after, datefmt)
+                            except ValueError:
+                                err()
+                            if now < before or now > after:
+                                err()
+
+                            # Check x509v3 extensions
+                            x509_ext_num = x509.get_ext_count()
+                            for x509_index in xrange(x509_ext_num):
+                                x509_ext = x509.get_ext_at(x509_index)
+                                x509_ext_name = x509_ext.get_name().lower()
+                                if x509_ext_name == "keyusage":
+                                    x509_ext_values = x509_ext.get_value()\
+                                        .lower()\
+                                        .split(",")
+                                    x509_ext_values = [e.strip() for e in iter(
+                                        x509_ext_values)]
+                                    for usage in iter(x509_ext_values):
+                                        if usage == "data encipherment" or \
+                                           usage == "key agreement":
+                                            cert_stack.push(x509)
                         except X509.X509Error:
                             err()
                         break
@@ -393,10 +426,6 @@ class Smilla(Milter.Base):
         out = BIO.MemoryBuffer()
         smime.write(out, p7)
         out.close()
-
-        if TESTING:
-            syslog("%s: Testing mode" % self.getsymval("i"))
-            return Milter.CONTINUE
 
         # "out" contains header and body. Need to split things, because we
         # are going to replace the message body

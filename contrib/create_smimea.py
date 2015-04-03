@@ -48,7 +48,7 @@ if __name__ == "__main__":
     if args.email is not "":
         import hashlib
         local, domain = args.email.split("@")
-        print hashlib.sha224(local).hexdigest() + \
+        print hashlib.sha256(local).hexdigest()[:28*2] + \
                             "._smimecert.%s. IN TYPE65514" % domain,
 
     smimea(args.usage_field, args.cert)
