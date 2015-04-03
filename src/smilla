@@ -35,6 +35,7 @@ import pwd
 import grp
 import signal
 import Milter
+import argparse
 
 from threading import Thread
 from syslog import syslog, openlog, LOG_PID, LOG_NOTICE, LOG_ERR, LOG_MAIL
@@ -64,6 +65,11 @@ CIPHER="aes_256_cbc"
 ZERO = timedelta(0)
 
 
+cfg = None  # global configuration
+ctx = unbound.ub_ctx()
+ctx.resolvconf('/etc/resolv.conf')
+
+
 # This decorator is used for the config parser
 @decorator
 def nonetype(f, *p, **kw):
@@ -83,7 +89,7 @@ class Config(ConfigParser.RawConfigParser):
     Read configuration file /etc/smilla.cfg. Set defaults for unset or empty
     parameters
     """
-    def __init__(self):
+    def __init__(self, args):
         ConfigParser.RawConfigParser.__init__(self)
 
         self.__user = None
@@ -94,6 +100,7 @@ class Config(ConfigParser.RawConfigParser):
         self.__pidfile = None
         self.__trust_anchor = None
         self.__milter_timeout = None
+        self.__args = args
 
         self._read_config()
 
@@ -107,7 +114,11 @@ class Config(ConfigParser.RawConfigParser):
 
     def _read_config(self):
         cfg_file_ok = True
-        if os.path.exists(CFG_FILE):
+        if self.__args.config is not None:
+            config = self.__args.config
+        else:
+            config = CFG_FILE
+        if os.path.exists(config):
             self.read(CFG_FILE)
         else:
             print >> sys.stderr, ("No configuration file available")
@@ -130,14 +141,26 @@ class Config(ConfigParser.RawConfigParser):
 
         # 2. Set defaults for unset or empty parameters
         if self.__user in ("", None):
-            self.__user = "milter"
+            if self.__args.user is not None:
+                self.__user = self.__args.user
+            else:
+                self.__user = "milter"
         if self.__group in ("", None):
-            self.__group = "milter"
+            if self.__args.group is not None:
+                self.__group = self.__args.group
+            else:
+                self.__group = "milter"
         if self.__port in ("", None):
-            self.__port = 8894
+            if self.__args.port is not None:
+                self.__port = self.__args.port
+            else:
+                self.__port = 8894
         if self.__bind_address in ("", None) and \
                         self.__bind_address6 in ("", None):
-            self.__bind_address = "127.0.0.1"
+            if self.__args.bind_address is not None:
+                self.__bind_address = self.__args.bind_address
+            else:
+                self.__bind_address = "127.0.0.1"
         if self.__bind_address is not None and \
                         self.__bind_address6 is not None:
             print >> sys.stderr, "Do not specify bind_address and " \
@@ -147,14 +170,25 @@ class Config(ConfigParser.RawConfigParser):
             self.__socketname = "inet:%s@%s" % (self.__port,
                                                 self.__bind_address)
         else:
+            if self.__args.bind_address6 is not None:
+                self.__bind_address6 = self.__args.bind_address6
             self.__socketname = "inet6:%s@[%s]" % (self.__port,
                                                 self.__bind_address6)
         if self.__pidfile in ("", None):
-            self.__pidfile = "/run/%s/%s.pid" % (NAME, NAME)
+            if self.__args.pid_file is not None:
+                self.__pidfile = self.__args.pid_file
+            else:
+                self.__pidfile = "/run/%s/%s.pid" % (NAME, NAME)
         if self.__trust_anchor in ("", None):
-            self.__trust_anchor = ANCHOR
+            if self.__args is not None:
+                self.__trust_anchor = self.__args.trust_anchor
+            else:
+                self.__trust_anchor = ANCHOR
         if self.__milter_timeout in ("", None):
-            self.__milter_timeout = 300
+            if self.__args.milter_timeout is not None:
+                self.__milter_timeout = self.__args.milter_timeout
+            else:
+                self.__milter_timeout = 300
 
     @property
     def user(self):
@@ -493,17 +527,6 @@ class Smilla(Milter.Base):
         return Milter.CONTINUE
 
 
-cfg = Config()
-
-ctx = unbound.ub_ctx()
-ctx.resolvconf('/etc/resolv.conf')
-try:
-    if os.path.isfile(cfg.trust_anchor):
-       ctx.add_ta_file(cfg.trust_anchor)
-except:
-    pass
-
-
 def runner():
     """Starts the milter loop"""
 
@@ -516,6 +539,71 @@ def runner():
 
 
 def main():
+    global cfg
+    global ctx
+
+    parser = argparse.ArgumentParser(epilog="Smilla email encryption")
+
+    parser.add_argument("--config",
+                        "-c",
+                        default=None,
+                        type=str,
+                        help="Load configuration options from this file")
+    parser.add_argument("--user",
+                        "-u",
+                        default=None,
+                        type=str,
+                        help="Run the milter as this user")
+    parser.add_argument("--group",
+                        "-g",
+                        default=None,
+                        type=str,
+                        help="Run the milter as this group")
+    parser.add_argument("--bind-address",
+                        "-4",
+                        default=None,
+                        type=str,
+                        help="Bind the milter to the given IPv4 address")
+    parser.add_argument("--bind-address6",
+                        "-6",
+                        default=None,
+                        type=str,
+                        help="Bind the milter to the given IPv6 address")
+    parser.add_argument("--port",
+                        "-p",
+                        default=None,
+                        type=int,
+                        help="TCP/IP port to listen for incoming requests")
+    parser.add_argument("--pid-file",
+                        "-f",
+                        default=None,
+                        type=str,
+                        help="PID file")
+    parser.add_argument("--trust-anchor",
+                        "-a",
+                        default=None,
+                        type=str,
+                        help="DNSSEC trust anchor file")
+    parser.add_argument("--milter-timeout",
+                        "-t",
+                        default=None,
+                        type=int,
+                        help="Milter timeout in seconds")
+
+    args = parser.parse_args()
+
+    if args.bind_address is not None and args.bind_address6 is not None:
+        print "Do not specify bind_address and bind_address6 at the same time!"
+        sys.exit(os.EX_USAGE)
+
+    cfg = Config(args)
+
+    try:
+        if os.path.isfile(cfg.trust_anchor):
+           ctx.add_ta_file(cfg.trust_anchor)
+    except:
+        pass
+
     openlog(NAME, LOG_PID, LOG_MAIL)
 
     uid = pwd.getpwnam(cfg.user)[2]
