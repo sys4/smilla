@@ -45,6 +45,7 @@ from cStringIO import StringIO
 from hashlib import sha256
 from M2Crypto import BIO, SMIME, X509
 from datetime import tzinfo, timedelta, datetime
+from email.utils import parseaddr
 
 try:
     import setproctitle
@@ -180,7 +181,7 @@ class Config(ConfigParser.RawConfigParser):
             else:
                 self.__pidfile = "/run/%s/%s.pid" % (NAME, NAME)
         if self.__trust_anchor in ("", None):
-            if self.__args is not None:
+            if self.__args.trust_anchor is not None:
                 self.__trust_anchor = self.__args.trust_anchor
             else:
                 self.__trust_anchor = ANCHOR
@@ -266,7 +267,16 @@ class Smilla(Milter.Base):
         self.__mailfrom = mailfrom
         # Clear data structures for new mail
         self.__msg_body = list()
+        self.__recipients = list()
         self.__fp = StringIO()
+
+        return Milter.CONTINUE
+
+    @Milter.noreply
+    def envrcpt(self, to, *mstr):
+        rcptinfo = to, Milter.dictfromlist(mstr)
+        rcptto = rcptinfo[0]
+        self.__recipients.append(parseaddr(rcptto)[1])
 
         return Milter.CONTINUE
 
@@ -287,28 +297,20 @@ class Smilla(Milter.Base):
 
         self.__fp.seek(0)
 
-        smime = SMIME.SMIME()
-        cert_stack = X509.X509_Stack()
-
         msg = email.message_from_file(self.__fp)
         self.__fp.close()
         del self.__fp
 
-        # get recipients from email message
-        tos = msg.get_all('to', list())
-        ccs = msg.get_all('cc', list())
-        all_recipients = email.utils.getaddresses(tos + ccs)
-        recipients = list()
-        for entry in all_recipients:
-            recipients.append(entry[1])
+        smime = SMIME.SMIME()
+        cert_stack = X509.X509_Stack()
 
         # Sanity check
-        if not len(recipients) > 0:
+        if not len(self.__recipients) > 0:
             syslog("%s: No recipients mail_from=%s" % (
                 self.getsymval("i"), self.__mailfrom))
             return Milter.CONTINUE
 
-        for recipient in iter(recipients):
+        for recipient in iter(self.__recipients):
             # Get DER certificate for each user. If we fail, we pass the mail
             # unencrypted
             try:
@@ -602,7 +604,8 @@ def main():
         if os.path.isfile(cfg.trust_anchor):
            ctx.add_ta_file(cfg.trust_anchor)
     except:
-        pass
+        print "Can not read trust anchor %s! Aborting" % cfg.trust_anchor
+        sys.exit(os.EX_USAGE)
 
     openlog(NAME, LOG_PID, LOG_MAIL)
 
