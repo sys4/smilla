@@ -36,6 +36,7 @@ import grp
 import signal
 import Milter
 import argparse
+import pyinotify
 
 from threading import Thread
 from syslog import syslog, openlog, LOG_PID, LOG_NOTICE, LOG_ERR, LOG_MAIL
@@ -528,6 +529,32 @@ class Smilla(Milter.Base):
         return Milter.CONTINUE
 
 
+class ProcessTransientFile(pyinotify.ProcessEvent):
+    """Watch for changed unbound trust anchor file"""
+
+    def process_IN_MODIFY(self, event):
+        # We have explicitely registered for this kind of event.
+        global cfg
+        global ctx
+
+        ctx.add_ta_file(cfg.trust_anchor)
+        syslog("unbound trust anchor file changed: %s" % event.pathname)
+
+    def process_default(self, event):
+        pass
+
+
+def unbound_watcher():
+    wm = pyinotify.WatchManager()
+    notifier = pyinotify.Notifier(wm)
+
+    wm.watch_transient_file(cfg.trust_anchor,
+                            pyinotify.IN_MODIFY,
+                            ProcessTransientFile)
+
+    notifier.loop()
+
+
 def runner():
     """Starts the milter loop"""
 
@@ -671,6 +698,10 @@ def main():
     signal.siginterrupt(signal.SIGUSR1, False)
 
     syslog(LOG_NOTICE, "%s-%s milter startup" % (NAME, __version__))
+
+    unbound_watcher_t = Thread(target=unbound_watcher)
+    unbound_watcher_t.daemon = True
+    unbound_watcher_t.start()
 
     milter_t = Thread(target=runner)
     milter_t.daemon = True
