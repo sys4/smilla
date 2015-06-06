@@ -62,7 +62,7 @@ NAME = "smilla"
 ANCHOR = "/etc/unbound/dnssec/root-anchors.txt"
 CFG_FILE = "/etc/%s.cfg" % NAME
 SMIMEA = 65514
-CIPHER="aes_256_cbc"
+CIPHER = "aes_256_cbc"
 ZERO = timedelta(0)
 
 
@@ -201,11 +201,11 @@ class Config(ConfigParser.RawConfigParser):
 
     @property
     def bind_address(self):
-        return self.__bindaddress
+        return self.__bind_address
 
     @property
     def bind_address6(self):
-        return self.__bindaddress6
+        return self.__bind_address6
 
     @property
     def port(self):
@@ -234,8 +234,10 @@ class UTC(tzinfo):
     """
     def utcoffset(self, dt):
         return ZERO
+
     def tzname(self, dt):
         return "UTC"
+
     def dst(self, dt):
         return ZERO
 
@@ -334,24 +336,21 @@ class Smilla(Milter.Base):
             if status != 0:
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
-                       "returned non-zero status "
-                       "- letting go plaintext"
+                       "returned non-zero status - deferring"
                         % (self.getsymval("i"), recipient))
-                return Milter.CONTINUE
+                return Milter.TEMPFAIL
             if result.rcode_str == 'serv fail':
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
-                       "returned SERVFAIL "
-                       "- letting go plaintext"
+                       "returned SERVFAIL - deferring"
                         % (self.getsymval("i"), recipient))
-                return Milter.CONTINUE
+                return Milter.TEMPFAIL
             if result.bogus:
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
-                       "returned with INVALID DNSSEC data "
-                       "- letting go plaintext"
+                       "returned with INVALID DNSSEC data - deferring"
                        % (self.getsymval("i"), recipient))
-                return Milter.CONTINUE
+                return Milter.TEMPFAIL
             if not result.secure:
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
@@ -454,7 +453,7 @@ class Smilla(Milter.Base):
 
             # Protect against super-encryption
             if "application/octet-stream" in msg["Content-Type"] and \
-                ".p7m" in msg["Content-Type"]:
+               ".p7m" in msg["Content-Type"]:
                 syslog('%s: Message already encrypted with S/MIME - letting it '
                        'go unmodified' % self.getsymval("i"))
 
@@ -514,7 +513,7 @@ class Smilla(Milter.Base):
         self.replacebody(out.read())
 
         syslog("%s: Message has been encrypted" % self.getsymval("i"))
-        self.addheader('X-SMIMEA', 'Message has been encrypted' , 1)
+        self.addheader('X-SMIMEA', 'Message has been encrypted', 1)
 
         return Milter.CONTINUE
 
@@ -602,7 +601,7 @@ def main():
 
     try:
         if os.path.isfile(cfg.trust_anchor):
-           ctx.add_ta_file(cfg.trust_anchor)
+            ctx.add_ta_file(cfg.trust_anchor)
     except:
         print "Can not read trust anchor %s! Aborting" % cfg.trust_anchor
         sys.exit(os.EX_USAGE)
@@ -630,7 +629,7 @@ def main():
             print >> sys.stderr, ("First fork failed: (%d) %s"
                                   % (e.errno, e.strerror))
             sys.exit(os.EX_OSERR)
-        if (pid == 0):
+        if pid == 0:
             os.setsid()
             try:
                 pid = os.fork()
@@ -638,7 +637,7 @@ def main():
                 print >> sys.stderr, ("Second fork failed: (%d) %s"
                                       % (e.errno, e.strerror))
                 sys.exit(os.EX_OSERR)
-            if (pid == 0):
+            if pid == 0:
                 os.chdir("/")
                 os.umask(0)
             else:
