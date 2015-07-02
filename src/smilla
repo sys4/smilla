@@ -55,7 +55,7 @@ except:
     pass
 
 
-DEBUG = False
+DEBUG = True
 DRY_RUN = False
 
 
