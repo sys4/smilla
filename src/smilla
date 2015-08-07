@@ -323,7 +323,8 @@ class Smilla(Milter.Base):
                            self.getsymval("i"), recipient))
                 return Milter.CONTINUE
 
-            username = username.lower()
+            # Does not match current expermintal RFC draft, so we comment it out
+            # username = username.lower()
 
             rfcname = sha256(username).hexdigest()[:28*2]  # only 28 octets
             query_name = '%s._smimecert.%s' % (rfcname, domainname)
