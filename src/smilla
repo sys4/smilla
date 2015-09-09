@@ -38,7 +38,7 @@ import Milter
 import argparse
 import pyinotify
 
-from threading import Thread
+from threading import Thread, Lock
 from syslog import syslog, openlog, LOG_PID, LOG_NOTICE, LOG_ERR, LOG_MAIL
 from decorator import decorator
 from ConfigParser import NoOptionError, NoSectionError
@@ -67,6 +67,7 @@ CIPHER = "aes_256_cbc"
 ZERO = timedelta(0)
 
 
+lock = Lock()
 cfg = None  # global configuration
 ctx = unbound.ub_ctx()
 ctx.resolvconf('/etc/resolv.conf')
@@ -296,6 +297,7 @@ class Smilla(Milter.Base):
         return Milter.CONTINUE
 
     def eom(self):
+        global lock
         global ctx  # unbound
 
         self.__fp.seek(0)
@@ -331,9 +333,10 @@ class Smilla(Milter.Base):
             syslog("%s: DNS query for '%s', %s" % (
                 self.getsymval("i"), recipient, query_name))
 
-            status, result = ctx.resolve(query_name,
-                                         SMIMEA,
-                                         unbound.RR_CLASS_IN)
+            with lock:
+                status, result = ctx.resolve(query_name,
+                                             SMIMEA,
+                                             unbound.RR_CLASS_IN)
 
             if status != 0:
                 syslog(LOG_ERR,
