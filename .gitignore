@@ -6,3 +6,5 @@ debian/outgoing
 .project
 .pydevproject
 .DS_Store
+.vagrant
+Vagrantfile
