@@ -23,7 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # Thanks for parts from openpgp-milter found on Github!
 
 __author__ = "Christian Roessner <c@roessner.co>"
-__version__ = "0.1"
+__version__ = "0.1.1"
 __copyright_ = "AGPL"
 
 import os
@@ -47,6 +47,7 @@ from hashlib import sha256
 from M2Crypto import BIO, SMIME, X509
 from datetime import tzinfo, timedelta, datetime
 from email.utils import parseaddr
+from email.parser import Parser
 
 try:
     import setproctitle
@@ -491,34 +492,23 @@ class Smilla(Milter.Base):
             syslog("%s: In testing mode" % self.getsymval("i"))
             return Milter.CONTINUE
 
-        # "out" contains header and body. Need to split things, because we
-        # are going to replace the message body
-        while True:
-            line = out.readline()
-            if line == "\n":
-                break
-            line.strip()
-            name, hval = line.split(":")
-            hval = hval.strip()
-            if name == "MIME-Version" and "MIME-Version" in msg:
-                self.chgheader(name, 1, hval)
-                continue
-            if name == "Content-Disposition" and "Content-Disposition" in msg:
-                self.chgheader(name, 1, hval)
-                continue
-            if name == "Content-Type" and "Content-Type" in msg:
-                self.chgheader(name, 1, hval)
-                continue
-            if name == "Content-Transfer-Encoding" and \
-                    "Content-Transfer-Encoding" in msg:
-                self.chgheader(name, 1, hval)
-                continue
-            self.addheader(name, hval)
-
-        self.replacebody(out.read())
-
         syslog("%s: Message has been encrypted" % self.getsymval("i"))
         self.addheader('X-SMIMEA', 'Message has been encrypted', 1)
+
+        # "out" contains header and body. Need to split things, because we
+        # are going to replace the message body
+        newmail = Parser().parsestr(out.read())
+        for header in newmail.keys():
+            for msg_header in msg.keys():
+                if header.lower() == msg_header.lower():
+                    self.chgheader(msg_header, 1, None)
+        self.addheader("MIME-Version", newmail["MIME-Version"])
+        self.addheader("Content-Type", newmail["Content-Type"])
+        self.addheader("Content-Disposition", newmail["Content-Disposition"])
+        self.addheader("Content-Transfer-Encoding", newmail[
+            "Content-Transfer-Encoding"])
+
+        self.replacebody(newmail.get_payload())
 
         return Milter.CONTINUE
 
