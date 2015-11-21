@@ -493,7 +493,7 @@ class Smilla(Milter.Base):
             return Milter.CONTINUE
 
         syslog("%s: Message has been encrypted" % self.getsymval("i"))
-        self.addheader('X-SMIMEA', 'Message has been encrypted', 1)
+        # self.addheader('X-SMIMEA', 'Message has been encrypted', 1)
 
         # "out" contains header and body. Need to split things, because we
         # are going to replace the message body
