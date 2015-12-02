@@ -63,7 +63,7 @@ DRY_RUN = False
 NAME = "smilla"
 ANCHOR = "/etc/unbound/dnssec/root-anchors.txt"
 CFG_FILE = "/etc/%s.cfg" % NAME
-SMIMEA = 65514
+SMIMEA = 53
 CIPHER = "aes_256_cbc"
 ZERO = timedelta(0)
 
