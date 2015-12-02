@@ -23,7 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # Thanks for parts from openpgp-milter found on Github!
 
 __author__ = "Christian Roessner <c@roessner.co>"
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __copyright_ = "AGPL"
 
 import os
@@ -56,7 +56,7 @@ except:
     pass
 
 
-DEBUG = True
+DEBUG = False
 DRY_RUN = False
 
 
@@ -303,18 +303,45 @@ class Smilla(Milter.Base):
 
         self.__fp.seek(0)
 
+        # header (as message)
         msg = email.message_from_file(self.__fp)
+        # body
+        msg_body = "".join(self.__msg_body)
+
         self.__fp.close()
         del self.__fp
-
-        smime = SMIME.SMIME()
-        cert_stack = X509.X509_Stack()
 
         # Sanity check
         if not len(self.__recipients) > 0:
             syslog("%s: No recipients mail_from=%s" % (
                 self.getsymval("i"), self.__mailfrom))
             return Milter.CONTINUE
+
+
+        # Protect against super-encryption
+        if '-----BEGIN PGP MESSAGE-----' in msg_body:
+            syslog('%s: Message already encrypted with PGP - letting it go '
+                   'unmodified' % self.getsymval("i"))
+            return Milter.CONTINUE
+
+        if "Content-Type" in msg:
+            # Protect against super-encryption
+            if "pkcs7-mime" in msg["Content-Type"] and \
+                    "enveloped-data" in msg["Content-Type"]:
+                syslog('%s: Message already encrypted with S/MIME - letting it '
+                       'go unmodified' % self.getsymval("i"))
+
+                return Milter.CONTINUE
+
+            # Protect against super-encryption
+            if "application/octet-stream" in msg["Content-Type"] and \
+               ".p7m" in msg["Content-Type"]:
+                syslog('%s: Message already encrypted with S/MIME - letting it '
+                       'go unmodified' % self.getsymval("i"))
+
+                return Milter.CONTINUE
+
+        cert_stack = X509.X509_Stack()
 
         for recipient in iter(self.__recipients):
             # Get DER certificate for each user. If we fail, we pass the mail
@@ -437,36 +464,13 @@ class Smilla(Milter.Base):
             if not cert_loaded:
                 return Milter.CONTINUE
 
+        smime = SMIME.SMIME()
         smime.set_x509_stack(cert_stack)
         smime.set_cipher(SMIME.Cipher(CIPHER))
         msg_buf = BIO.MemoryBuffer()
-        msg_body = "".join(self.__msg_body)
-
-        # Protect against super-encryption
-        if '-----BEGIN PGP MESSAGE-----' in msg_body:
-            syslog('%s: Message already encrypted with PGP - letting it go '
-                   'unmodified' % self.getsymval("i"))
-            return Milter.CONTINUE
 
         if "Content-Type" in msg:
-            # Protect against super-encryption
-            if "pkcs7-mime" in msg["Content-Type"] and \
-                    "enveloped-data" in msg["Content-Type"]:
-                syslog('%s: Message already encrypted with S/MIME - letting it '
-                       'go unmodified' % self.getsymval("i"))
-
-                return Milter.CONTINUE
-
-            # Protect against super-encryption
-            if "application/octet-stream" in msg["Content-Type"] and \
-               ".p7m" in msg["Content-Type"]:
-                syslog('%s: Message already encrypted with S/MIME - letting it '
-                       'go unmodified' % self.getsymval("i"))
-
-                return Milter.CONTINUE
-
             prefix = "Content-Type: %s\n" % msg["Content-Type"]
-
         else:
             # We need to set a default Content-Type for the resulting PKCS#7
             prefix = "Content-Type: text/plain\n"
