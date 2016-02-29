@@ -23,7 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # Thanks for parts from openpgp-milter found on Github!
 
 __author__ = "Christian Roessner <c@roessner.co>"
-__version__ = "0.1.2"
+__version__ = "0.1.1"
 __copyright_ = "AGPL"
 
 import os
@@ -261,9 +261,9 @@ class Smilla(Milter.Base):
         self.__ipname = ipname
         self.__port = hostaddr[1]
 
-        syslog("connect from %s[%s]:%s" % (self.__ipname,
-                                           self.__ip,
-                                           self.__port))
+        #syslog("connect from %s[%s]:%s" % (self.__ipname,
+        #                                   self.__ip,
+        #                                   self.__port))
 
         return Milter.CONTINUE
 
@@ -333,8 +333,7 @@ class Smilla(Milter.Base):
 
                 return Milter.CONTINUE
 
-            # Protect against super-encryption
-            if "application/octet-stream" in msg["Content-Type"] and \
+            elif "application/octet-stream" in msg["Content-Type"] and \
                ".p7m" in msg["Content-Type"]:
                 syslog('%s: Message already encrypted with S/MIME - letting it '
                        'go unmodified' % self.getsymval("i"))
@@ -358,8 +357,8 @@ class Smilla(Milter.Base):
 
             rfcname = sha256(username).hexdigest()[:28*2]  # only 28 octets
             query_name = '%s._smimecert.%s' % (rfcname, domainname)
-            syslog("%s: DNS query for '%s', %s" % (
-                self.getsymval("i"), recipient, query_name))
+            #syslog("%s: DNS query for '%s', %s" % (
+            #    self.getsymval("i"), recipient, query_name))
 
             with lock:
                 status, result = ctx.resolve(query_name,
@@ -385,18 +384,18 @@ class Smilla(Milter.Base):
                        % (self.getsymval("i"), recipient))
                 return Milter.TEMPFAIL
             if not result.secure:
-                syslog(LOG_ERR,
-                       "%s: unbound SMIMEA lookup for '%s' "
-                       "ignored as the domain is not signed with DNSSEC "
-                       "- letting go plaintext"
-                        % (self.getsymval("i"), recipient))
+                #syslog(LOG_ERR,
+                #       "%s: unbound SMIMEA lookup for '%s' "
+                #       "ignored as the domain is not signed with DNSSEC "
+                #       "- letting go plaintext"
+                #        % (self.getsymval("i"), recipient))
                 return Milter.CONTINUE
             if not result.havedata:
-                syslog(LOG_ERR,
-                       "%s: unbound SMIMEA lookup for '%s' "
-                       "succeeded but no SMIME cert published "
-                       "- letting go plaintext"
-                       % (self.getsymval("i"), recipient))
+                #syslog(LOG_ERR,
+                #       "%s: unbound SMIMEA lookup for '%s' "
+                #       "succeeded but no SMIME cert published "
+                #       "- letting go plaintext"
+                #       % (self.getsymval("i"), recipient))
                 return Milter.CONTINUE
 
             cert_loaded = False
@@ -517,9 +516,9 @@ class Smilla(Milter.Base):
         return Milter.CONTINUE
 
     def close(self):
-        syslog("disconnect from %s[%s]:%s" % (self.__ipname,
-                                              self.__ip,
-                                              self.__port))
+        #syslog("disconnect from %s[%s]:%s" % (self.__ipname,
+        #                                      self.__ip,
+        #                                      self.__port))
 
         return Milter.CONTINUE
 
