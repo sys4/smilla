@@ -9,7 +9,7 @@ You need the python bindings for the unbound DNS resolver [1], python-decorator
 [3] http://pypi.python.org/pypi/M2Crypto
     http://chandlerproject.org/bin/view/Projects/MeTooCrypto
 [4] http://www.bmsi.com/python/milter.html
-[5]
+[5] https://github.com/seb-m/pyinotify/wiki
 
 Debian packages:
 ```
@@ -23,7 +23,7 @@ Installation
 Copy src/smilla to /usr/local/sbin
 Copy conf/smilla.cfg to /etc
 
-Adopt the configuration file to your needs
+Adapt the configuration file to your needs
 
 Create the directory /run/smilla (or, if you changed the default, use the
 directory that you have specified). Change ownership of this directory to match
@@ -45,7 +45,7 @@ Postfix
 	           command_timeout=300s,
 		   default_action=accept }
 	# If running Postfix < 3.0.0
-	smilla = inet:127.0.0.1:10489
+	smilla = inet:127.0.0.1:8894
 	smtpd_milters = ..., ${smilla}, ${DKIM_Signing}, ...
 	...
 
