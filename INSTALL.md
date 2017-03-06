@@ -2,21 +2,26 @@ Requirements
 ------------
 
 You need the python bindings for the unbound DNS resolver [1], python-decorator
-[2], M2Crypto [3] and pymilter [4]
+[2], M2Crypto [3], pyinotify[5] and pymilter [4]
 
-[1] http://unbound.net/
-[2] http://pypi.python.org/pypi/decorator http://code.google.com/p/micheles
-[3] http://pypi.python.org/pypi/M2Crypto
-    http://chandlerproject.org/bin/view/Projects/MeTooCrypto
-[4] http://www.bmsi.com/python/milter.html
+ * [1] http://unbound.net/
+ * [2] http://pypi.python.org/pypi/decorator http://code.google.com/p/micheles
+ * [3] http://pypi.python.org/pypi/M2Crypto or http://chandlerproject.org/bin/view/Projects/MeTooCrypto
+ * [4] http://www.bmsi.com/python/milter.html
+ * [5] https://github.com/seb-m/pyinotify/wiki
+
+Debian packages:
+```
+apt install python-pyinotify python-unbound python-milter \
+    python-m2crypto python-decorator
+```
 
 Installation
 ------------
 
-Copy src/smilla to /usr/local/sbin
-Copy conf/smilla.cfg to /etc
-
-Adopt the configuration file to your needs
+ * Copy src/smilla to /usr/local/sbin
+ * Copy conf/smilla.cfg to /etc
+ * Adapt the configuration file to your needs
 
 Create the directory /run/smilla (or, if you changed the default, use the
 directory that you have specified). Change ownership of this directory to match
@@ -32,15 +37,17 @@ Postfix
 -------
 
 /etc/postfix/main.cf:
-	...
+```
+        ...
 	# If running Postfix >= 3.0.0
 	smilla = { inet:127.0.0.1:10489,
 	           command_timeout=300s,
 		   default_action=accept }
 	# If running Postfix < 3.0.0
-	smilla = inet:127.0.0.1:10489
+	smilla = inet:127.0.0.1:8894
 	smtpd_milters = ..., ${smilla}, ${DKIM_Signing}, ...
 	...
+```
 
 If you use a DKIM milter, you MUST place smilla in front of this milter!
 
