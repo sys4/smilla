@@ -2,13 +2,20 @@ Requirements
 ------------
 
 You need the python bindings for the unbound DNS resolver [1], python-decorator
-[2], M2Crypto [3] and pymilter [4]
+[2], M2Crypto [3], pyinotify[5] and pymilter [4]
 
 [1] http://unbound.net/
 [2] http://pypi.python.org/pypi/decorator http://code.google.com/p/micheles
 [3] http://pypi.python.org/pypi/M2Crypto
     http://chandlerproject.org/bin/view/Projects/MeTooCrypto
 [4] http://www.bmsi.com/python/milter.html
+[5]
+
+Debian packages:
+```
+apt install python-pyinotify python-unbound python-milter \
+    python-m2crypto python-decorator
+```
 
 Installation
 ------------
