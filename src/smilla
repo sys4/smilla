@@ -374,9 +374,9 @@ class Smilla(Milter.Base):
             if result.rcode_str == 'serv fail':
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
-                       "returned SERVFAIL - letting go plaintext"
+                       "returned SERVFAIL - deferring"
                         % (self.getsymval("i"), recipient))
-                return Milter.CONTINUE
+                return Milter.TEMPFAIL
             if result.bogus:
                 syslog(LOG_ERR,
                        "%s: unbound SMIMEA lookup for '%s' "
